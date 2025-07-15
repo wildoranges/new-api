@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +30,7 @@ type JSRuntimeConfig struct {
 	ScriptTimeout  time.Duration `json:"script_timeout"`
 	PreScriptPath  string        `json:"pre_script_path"`
 	PostScriptPath string        `json:"post_script_path"`
+	FetchTimeout   time.Duration `json:"fetch_timeout"`
 }
 
 /// 池化
@@ -37,6 +40,7 @@ type JSRuntimePool struct {
 	createFunc func() *goja.Runtime
 	scripts    map[string]string
 	mu         sync.RWMutex
+	httpClient *http.Client
 }
 
 /// 上下文
@@ -44,7 +48,6 @@ type JSContext struct {
 	Method      string            `json:"method"`
 	URL         string            `json:"url"`
 	Headers     map[string]string `json:"headers"`
-	// 可能是string、[]byte、map等
 	Body        any               `json:"body"`
 	UserAgent   string            `json:"userAgent"`
 	RemoteIP    string            `json:"remoteIP"`
@@ -61,12 +64,29 @@ type JSDatabase struct {
 	db *gorm.DB
 }
 
+type JSFetchRequest struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+	Timeout int               `json:"timeout"`
+}
+
+type JSFetchResponse struct {
+	Status     int               `json:"status"`
+	StatusText string            `json:"statusText"`
+	Headers    map[string]string `json:"headers"`
+	Body       string            `json:"body"`
+	OK         bool              `json:"ok"`
+}
+
 type responseWriter struct {
 	gin.ResponseWriter
 	body       *bytes.Buffer
 	statusCode int
 	headerMap  http.Header
 	written    bool
+	mu         sync.RWMutex
 }
 
 var (
@@ -79,6 +99,7 @@ const (
 	defaultPreScriptPath  = "scripts/pre_process.js"
 	defaultPostScriptPath = "scripts/post_process.js"
 	defaultScriptTimeout  = 5 * time.Second
+	defaultFetchTimeout   = 10 * time.Second
 	defaultMaxVMCount     = 8
 )
 
@@ -101,6 +122,14 @@ func init() {
 		}
 	} else {
 		jsConfig.ScriptTimeout = defaultScriptTimeout
+	}
+
+	if fetchTimeout := os.Getenv("JS_FETCH_TIMEOUT"); fetchTimeout != "" {
+		if t, err := time.ParseDuration(fetchTimeout + "s"); err == nil && t > 0 {
+			jsConfig.FetchTimeout = t
+		}
+	} else {
+		jsConfig.FetchTimeout = defaultFetchTimeout
 	}
 
 	jsConfig.PreScriptPath = os.Getenv("JS_PREPROCESS_SCRIPT_PATH")
@@ -220,10 +249,24 @@ func createJSContext(c *gin.Context) *JSContext {
 }
 
 func NewJSRuntimePool(maxSize int) *JSRuntimePool {
+	// 创建HTTP客户端
+	httpClient := &http.Client{
+		Timeout: jsConfig.FetchTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: false,
+			},
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+
 	pool := &JSRuntimePool{
-		pool:    make(chan *goja.Runtime, maxSize),
-		maxSize: maxSize,
-		scripts: make(map[string]string),
+		pool:       make(chan *goja.Runtime, maxSize),
+		maxSize:    maxSize,
+		scripts:    make(map[string]string),
+		httpClient: httpClient,
 	}
 
 	pool.createFunc = func() *goja.Runtime {
@@ -233,7 +276,7 @@ func NewJSRuntimePool(maxSize int) *JSRuntimePool {
 		return vm
 	}
 
-	// 预创建
+	// 预创建VM
 	preCreate := min(maxSize/2, 4)
 	for range preCreate {
 		select {
@@ -255,6 +298,10 @@ func (p *JSRuntimePool) Get() *goja.Runtime {
 }
 
 func (p *JSRuntimePool) Put(vm *goja.Runtime) {
+	if vm == nil {
+		return
+	}
+	
 	select {
 	case p.pool <- vm:
 	default:
@@ -279,6 +326,13 @@ func (p *JSRuntimePool) setupGlobals(vm *goja.Runtime) {
 		}
 		common.SysError("JS: " + strings.Join(strs, " "))
 	})
+	console.Set("warn", func(args ...any) {
+		var strs []string
+		for _, arg := range args {
+			strs = append(strs, fmt.Sprintf("%v", arg))
+		}
+		common.SysError("JS WARN: " + strings.Join(strs, " "))
+	})
 	vm.Set("console", console)
 
 	// JSON
@@ -300,7 +354,144 @@ func (p *JSRuntimePool) setupGlobals(vm *goja.Runtime) {
 	})
 	vm.Set("JSON", jsonObj)
 
+	// fetch 实现
+	vm.Set("fetch", func(url string, options ...any) *JSFetchResponse {
+		return p.fetch(url, options...)
+	})
+
+	// 数据库
 	vm.Set("db", &JSDatabase{db: model.DB})
+
+	// 定时器 (简化版)
+	vm.Set("setTimeout", func(fn func(), delay int) {
+		go func() {
+			time.Sleep(time.Duration(delay) * time.Millisecond)
+			fn()
+		}()
+	})
+}
+
+func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
+	req := &JSFetchRequest{
+		Method:  "GET",
+		URL:     url,
+		Headers: make(map[string]string),
+		Timeout: int(jsConfig.FetchTimeout.Seconds()),
+	}
+
+	// 解析选项
+	if len(options) > 0 && options[0] != nil {
+		if optMap, ok := options[0].(map[string]any); ok {
+			if method, exists := optMap["method"]; exists {
+				if methodStr, ok := method.(string); ok {
+					req.Method = strings.ToUpper(methodStr)
+				}
+			}
+
+			if headers, exists := optMap["headers"]; exists {
+				if headersMap, ok := headers.(map[string]any); ok {
+					for k, v := range headersMap {
+						if vStr, ok := v.(string); ok {
+							req.Headers[k] = vStr
+						}
+					}
+				}
+			}
+
+			if body, exists := optMap["body"]; exists {
+				switch v := body.(type) {
+				case string:
+					req.Body = v
+				case map[string]any:
+					if bodyBytes, err := json.Marshal(v); err == nil {
+						req.Body = string(bodyBytes)
+						req.Headers["Content-Type"] = "application/json"
+					}
+				default:
+					req.Body = fmt.Sprintf("%v", body)
+				}
+			}
+
+			if timeout, exists := optMap["timeout"]; exists {
+				if timeoutNum, ok := timeout.(float64); ok {
+					req.Timeout = int(timeoutNum)
+				}
+			}
+		}
+	}
+
+	// 创建HTTP请求
+	var bodyReader io.Reader
+	if req.Body != "" {
+		bodyReader = strings.NewReader(req.Body)
+	}
+
+	httpReq, err := http.NewRequest(req.Method, req.URL, bodyReader)
+	if err != nil {
+		return &JSFetchResponse{
+			Status:     0,
+			StatusText: err.Error(),
+			Headers:    make(map[string]string),
+			Body:       "",
+			OK:         false,
+		}
+	}
+
+	// 设置请求头
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	// 设置默认User-Agent
+	if httpReq.Header.Get("User-Agent") == "" {
+		httpReq.Header.Set("User-Agent", "JS-Runtime-Fetch/1.0")
+	}
+
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.Timeout)*time.Second)
+	defer cancel()
+	httpReq = httpReq.WithContext(ctx)
+
+	// 执行请求
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return &JSFetchResponse{
+			Status:     0,
+			StatusText: err.Error(),
+			Headers:    make(map[string]string),
+			Body:       "",
+			OK:         false,
+		}
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &JSFetchResponse{
+			Status:     resp.StatusCode,
+			StatusText: resp.Status,
+			Headers:    make(map[string]string),
+			Body:       "",
+			OK:         resp.StatusCode >= 200 && resp.StatusCode < 300,
+		}
+	}
+
+	// 构建响应头
+	headers := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	return &JSFetchResponse{
+		Status:     resp.StatusCode,
+		StatusText: resp.Status,
+		Headers:    headers,
+		Body:       string(bodyBytes),
+		OK:         resp.StatusCode >= 200 && resp.StatusCode < 300,
+	}
 }
 
 func (p *JSRuntimePool) loadScripts(vm *goja.Runtime) {
@@ -435,6 +626,32 @@ func validateGinContext(c *gin.Context) error {
 	return nil
 }
 
+func (p *JSRuntimePool) executeWithTimeout(vm *goja.Runtime, fn func() (goja.Value, error)) (goja.Value, error) {
+	type result struct {
+		value goja.Value
+		err   error
+	}
+
+	resultChan := make(chan result, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				resultChan <- result{err: fmt.Errorf("JS panic: %v", r)}
+			}
+		}()
+		
+		value, err := fn()
+		resultChan <- result{value: value, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.value, res.err
+	case <-time.After(jsConfig.ScriptTimeout):
+		return nil, fmt.Errorf("script execution timeout after %v", jsConfig.ScriptTimeout)
+	}
+}
+
 func (p *JSRuntimePool) PreProcessRequest(c *gin.Context) error {
 	if err := validateGinContext(c); err != nil {
 		common.SysError("JS PreProcess Validation Error: " + err.Error())
@@ -454,39 +671,14 @@ func (p *JSRuntimePool) PreProcessRequest(c *gin.Context) error {
 		return fmt.Errorf("failed to create JS context")
 	}
 
-	type jsResult struct {
-		result goja.Value
-		err    error
-	}
-
-	resultChan := make(chan jsResult, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				resultChan <- jsResult{err: fmt.Errorf("JS panic: %v", r)}
-			}
-		}()
-
+	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
 		vm.Set("ctx", jsCtx)
 		fn, ok := goja.AssertFunction(preProcessFunc)
 		if !ok {
-			resultChan <- jsResult{err: fmt.Errorf("preProcessRequest is not a function")}
-			return
+			return nil, fmt.Errorf("preProcessRequest is not a function")
 		}
-
-		result, err := fn(goja.Undefined(), vm.ToValue(jsCtx))
-		resultChan <- jsResult{result: result, err: err}
-	}()
-
-	var err error
-	var result goja.Value
-	select {
-	case res := <-resultChan:
-		result, err = res.result, res.err
-	// 超时控制
-	case <-time.After(jsConfig.ScriptTimeout):
-		return fmt.Errorf("JS preProcess timeout after %v", jsConfig.ScriptTimeout)
-	}
+		return fn(goja.Undefined(), vm.ToValue(jsCtx))
+	})
 
 	if err != nil {
 		common.SysError("JS PreProcess Error: " + err.Error())
@@ -593,40 +785,14 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 		}
 	}
 
-	type jsResult struct {
-		result goja.Value
-		err    error
-	}
-
-	resultChan := make(chan jsResult, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				resultChan <- jsResult{err: fmt.Errorf("JS panic: %v", r)}
-			}
-		}()
-
+	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
 		vm.Set("ctx", jsCtx)
 		fn, ok := goja.AssertFunction(postProcessFunc)
 		if !ok {
-			resultChan <- jsResult{err: fmt.Errorf("postProcessResponse is not a function")}
-			return
+			return nil, fmt.Errorf("postProcessResponse is not a function")
 		}
-
-		result, err := fn(goja.Undefined(), vm.ToValue(jsCtx), vm.ToValue(jsResponse))
-		resultChan <- jsResult{result: result, err: err}
-	}()
-
-	var result goja.Value
-	var err error
-
-	select {
-	case res := <-resultChan:
-		result, err = res.result, res.err
-	// 超时控制
-	case <-time.After(jsConfig.ScriptTimeout):
-		return statusCode, body, fmt.Errorf("JS postProcess timeout after %v", jsConfig.ScriptTimeout)
-	}
+		return fn(goja.Undefined(), vm.ToValue(jsCtx), vm.ToValue(jsResponse))
+	})
 
 	if err != nil {
 		common.SysError("JS PostProcess Error: " + err.Error())
@@ -682,6 +848,9 @@ func newResponseWriter(w gin.ResponseWriter) *responseWriter {
 }
 
 func (w *responseWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	
 	if !w.written {
 		w.WriteHeader(200)
 	}
@@ -689,6 +858,9 @@ func (w *responseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *responseWriter) WriteString(s string) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	
 	if !w.written {
 		w.WriteHeader(200)
 	}
@@ -696,6 +868,9 @@ func (w *responseWriter) WriteString(s string) (int, error) {
 }
 
 func (w *responseWriter) WriteHeader(statusCode int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	
 	if w.written {
 		return
 	}
@@ -706,6 +881,9 @@ func (w *responseWriter) WriteHeader(statusCode int) {
 }
 
 func (w *responseWriter) Header() http.Header {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	
 	if w.headerMap == nil {
 		w.headerMap = make(http.Header)
 	}
