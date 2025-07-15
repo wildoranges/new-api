@@ -1,6 +1,7 @@
 package jsrt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,16 +15,15 @@ type JSFetchRequest struct {
 	Method  string            `json:"method"`
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
+	Body    any               `json:"body"`
 	Timeout int               `json:"timeout"`
 }
 
 type JSFetchResponse struct {
-	Status     int               `json:"status"`
-	StatusText string            `json:"statusText"`
-	Headers    map[string]string `json:"headers"`
-	Body       string            `json:"body"`
-	OK         bool              `json:"ok"`
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+	Error   string            `json:"error,omitempty"`
 }
 
 func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
@@ -54,17 +54,7 @@ func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
 			}
 
 			if body, exists := optMap["body"]; exists {
-				switch v := body.(type) {
-				case string:
-					req.Body = v
-				case map[string]any:
-					if bodyBytes, err := json.Marshal(v); err == nil {
-						req.Body = string(bodyBytes)
-						req.Headers["Content-Type"] = "application/json"
-					}
-				default:
-					req.Body = fmt.Sprintf("%v", body)
-				}
+				req.Body = body
 			}
 
 			if timeout, exists := optMap["timeout"]; exists {
@@ -77,18 +67,27 @@ func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
 
 	// 创建HTTP请求
 	var bodyReader io.Reader
-	if req.Body != "" {
-		bodyReader = strings.NewReader(req.Body)
+	switch body := req.Body.(type) {
+	case string:
+		bodyReader = strings.NewReader(body)
+	case []byte:
+		bodyReader = bytes.NewReader(body)
+	case nil:
+		bodyReader = nil
+	default:
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return &JSFetchResponse{
+				Error: fmt.Sprintf("Failed to marshal body: %v", err),
+			}
+		}
+		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
 	httpReq, err := http.NewRequest(req.Method, req.URL, bodyReader)
 	if err != nil {
 		return &JSFetchResponse{
-			Status:     0,
-			StatusText: err.Error(),
-			Headers:    make(map[string]string),
-			Body:       "",
-			OK:         false,
+			Error: err.Error(),
 		}
 	}
 
@@ -110,13 +109,7 @@ func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
 	// 执行请求
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		return &JSFetchResponse{
-			Status:     0,
-			StatusText: err.Error(),
-			Headers:    make(map[string]string),
-			Body:       "",
-			OK:         false,
-		}
+		return &JSFetchResponse{}
 	}
 	defer resp.Body.Close()
 
@@ -124,11 +117,7 @@ func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return &JSFetchResponse{
-			Status:     resp.StatusCode,
-			StatusText: resp.Status,
-			Headers:    make(map[string]string),
-			Body:       "",
-			OK:         resp.StatusCode >= 200 && resp.StatusCode < 300,
+			Status: resp.StatusCode,
 		}
 	}
 
@@ -141,10 +130,8 @@ func (p *JSRuntimePool) fetch(url string, options ...any) *JSFetchResponse {
 	}
 
 	return &JSFetchResponse{
-		Status:     resp.StatusCode,
-		StatusText: resp.Status,
-		Headers:    headers,
-		Body:       string(bodyBytes),
-		OK:         resp.StatusCode >= 200 && resp.StatusCode < 300,
+		Status:  resp.StatusCode,
+		Headers: headers,
+		Body:    string(bodyBytes),
 	}
 }

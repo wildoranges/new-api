@@ -146,6 +146,7 @@ func (p *JSRuntimePool) setupGlobals(vm *goja.Runtime) {
 
 	// 数据库
 	vm.Set("db", &JSDatabase{db: model.DB})
+	vm.Set("logdb", &JSDatabase{db: model.LOG_DB})
 
 	// 定时器
 	vm.Set("setTimeout", func(fn func(), delay int) {
