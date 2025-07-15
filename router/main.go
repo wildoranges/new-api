@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"one-api/common"
-	"one-api/middleware"
+	"one-api/middleware/jsrt"
 	"os"
 	"strings"
 
@@ -13,7 +13,7 @@ import (
 )
 
 func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
-	router.Use(middleware.JSRuntimeMiddleware())
+	router.Use(jsrt.JSRuntimeMiddleware())
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)

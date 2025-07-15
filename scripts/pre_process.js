@@ -50,7 +50,7 @@ function preProcessRequest(ctx) {
                 }
             };
         } catch (e) {
-            console.error("Failed to parse/modify request body:", {
+            console.error("Failed to modify request body:", {
                 message: e.message,
                 stack: e.stack,
                 bodyType: typeof ctx.Body,
