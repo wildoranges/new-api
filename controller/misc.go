@@ -303,5 +303,13 @@ func ResetPassword(c *gin.Context) {
 		"message": "",
 		"data":    password,
 	})
-	return
+}
+
+func ReloadJSScripts(c *gin.Context) {
+	middleware.ReloadJSScripts()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "JavaScript 脚本已重新加载",
+	})
 }
