@@ -4,7 +4,7 @@
 // @param {Object} ctx - 请求上下文对象
 // @returns {Object|undefined} - 返回修改后的请求对象或 undefined
 // 
-// 参考: [JS Rt](./middleware/js_rt.go) 里的 `JSContext`
+// 参考: [JS Rt](./middleware/jsrt/ctx.go) 里的 `JSContext`
 function preProcessRequest(ctx) {
     // 例子：基于数据库的速率限制
     // if (ctx.url.includes("/v1/chat/completions")) {

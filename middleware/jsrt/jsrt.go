@@ -18,8 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
-/// 池化
+// / 池化
 type JSRuntimePool struct {
 	pool       chan *goja.Runtime
 	maxSize    int
@@ -87,7 +86,7 @@ func (p *JSRuntimePool) Put(vm *goja.Runtime) {
 	if vm == nil {
 		return
 	}
-	
+
 	select {
 	case p.pool <- vm:
 	default:
@@ -240,7 +239,7 @@ func (p *JSRuntimePool) executeWithTimeout(vm *goja.Runtime, fn func() (goja.Val
 				resultChan <- result{err: fmt.Errorf("JS panic: %v", r)}
 			}
 		}()
-		
+
 		value, err := fn()
 		resultChan <- result{value: value, err: err}
 	}()
@@ -438,15 +437,16 @@ func (p *JSRuntimePool) hasPostProcessFunction() bool {
 	return postProcessFunc != nil && !goja.IsUndefined(postProcessFunc)
 }
 
-func JSRuntimeMiddleware() gin.HandlerFunc {
+func JSRuntimeMiddleware() *gin.HandlerFunc {
+	loadCfg()
 	if !jsConfig.Enabled {
-		return func(c *gin.Context) {
-			c.Next()
-		}
+		common.SysLog("JavaScript Runtime is disabled")
+		return nil
 	}
 
 	pool := initJSRuntimePool()
-	return func(c *gin.Context) {
+	var fn gin.HandlerFunc
+	fn = func(c *gin.Context) {
 		start := time.Now()
 
 		// 预处理
@@ -507,6 +507,7 @@ func JSRuntimeMiddleware() gin.HandlerFunc {
 			common.SysLog(fmt.Sprintf("JS Runtime processing took %v", duration))
 		}
 	}
+	return &fn
 }
 
 func ReloadJSScripts() {

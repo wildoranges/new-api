@@ -13,7 +13,11 @@ import (
 )
 
 func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
-	router.Use(jsrt.JSRuntimeMiddleware())
+	jsrtMid := jsrt.JSRuntimeMiddleware()
+	if jsrtMid != nil {
+		router.Use(*jsrtMid)
+	}
+
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)

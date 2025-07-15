@@ -28,7 +28,7 @@ const (
 	defaultMaxVMCount     = 8
 )
 
-func init() {
+func loadCfg() {
 	if enabled := os.Getenv("JS_RUNTIME_ENABLED"); enabled != "" {
 		jsConfig.Enabled = enabled == "true"
 	}
