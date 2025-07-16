@@ -513,11 +513,8 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 			if writer.body.Len() > 0 {
 				statusCode, body, err := pool.PostProcessResponse(c, writer.statusCode, writer.body.Bytes())
 				if err == nil {
-					// 更新响应
 					c.Writer = writer.ResponseWriter
-					c.Writer.Header().Del("Content-Length")
 
-					// 设置修改后的headers
 					for k, v := range writer.headerMap {
 						for _, value := range v {
 							c.Writer.Header().Add(k, value)
@@ -525,14 +522,30 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 					}
 
 					c.Status(statusCode)
-					c.Writer.Write(body)
+
+					if len(body) >= 0 {
+						c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+						c.Writer.Write(body)
+					} else {
+						c.Writer.Header().Del("Content-Length")
+						c.Writer.Write(body)
+					}
+
 					common.SysLog(fmt.Sprintf("JS Runtime PostProcessing Completed with status %d", statusCode))
 				} else {
-					// 出错时返回原始响应
+					// 出错时回复原响应
 					c.Writer = writer.ResponseWriter
-					c.Writer.Header().Del("Content-Length")
 					c.Status(writer.statusCode)
-					c.Writer.Write(writer.body.Bytes())
+
+					originalBody := writer.body.Bytes()
+					if len(originalBody) >= 0 {
+						c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(originalBody)))
+						c.Writer.Write(originalBody)
+					} else {
+						c.Writer.Header().Del("Content-Length")
+						c.Writer.Write(originalBody)
+					}
+
 					common.SysError(fmt.Sprintf("JS Runtime PostProcess Error: %v", err))
 				}
 			} else {
