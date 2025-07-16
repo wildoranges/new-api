@@ -8,12 +8,11 @@ import (
 
 // Runtime 配置
 type JSRuntimeConfig struct {
-	Enabled        bool          `json:"enabled"`
-	MaxVMCount     int           `json:"max_vm_count"`
-	ScriptTimeout  time.Duration `json:"script_timeout"`
-	PreScriptPath  string        `json:"pre_script_path"`
-	PostScriptPath string        `json:"post_script_path"`
-	FetchTimeout   time.Duration `json:"fetch_timeout"`
+	Enabled       bool          `json:"enabled"`
+	MaxVMCount    int           `json:"max_vm_count"`
+	ScriptTimeout time.Duration `json:"script_timeout"`
+	ScriptDir     string        `json:"script_dir"`
+	FetchTimeout  time.Duration `json:"fetch_timeout"`
 }
 
 var (
@@ -21,11 +20,10 @@ var (
 )
 
 const (
-	defaultPreScriptPath  = "scripts/pre_process.js"
-	defaultPostScriptPath = "scripts/post_process.js"
-	defaultScriptTimeout  = 5 * time.Second
-	defaultFetchTimeout   = 10 * time.Second
-	defaultMaxVMCount     = 8
+	defaultScriptDir     = "scripts/"
+	defaultScriptTimeout = 5 * time.Second
+	defaultFetchTimeout  = 10 * time.Second
+	defaultMaxVMCount    = 8
 )
 
 func loadCfg() {
@@ -57,13 +55,8 @@ func loadCfg() {
 		jsConfig.FetchTimeout = defaultFetchTimeout
 	}
 
-	jsConfig.PreScriptPath = os.Getenv("JS_PREPROCESS_SCRIPT_PATH")
-	if jsConfig.PreScriptPath == "" {
-		jsConfig.PreScriptPath = defaultPreScriptPath
-	}
-
-	jsConfig.PostScriptPath = os.Getenv("JS_POSTPROCESS_SCRIPT_PATH")
-	if jsConfig.PostScriptPath == "" {
-		jsConfig.PostScriptPath = defaultPostScriptPath
+	jsConfig.ScriptDir = os.Getenv("JS_SCRIPT_DIR")
+	if jsConfig.ScriptDir == "" {
+		jsConfig.ScriptDir = defaultScriptDir
 	}
 }

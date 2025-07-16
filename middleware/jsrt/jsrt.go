@@ -10,6 +10,7 @@ import (
 	"one-api/common"
 	"one-api/model"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,7 @@ type JSRuntimePool struct {
 	pool       chan *goja.Runtime
 	maxSize    int
 	createFunc func() *goja.Runtime
-	scripts    map[string]string
+	scripts    string
 	mu         sync.RWMutex
 	httpClient *http.Client
 }
@@ -50,7 +51,7 @@ func NewJSRuntimePool(maxSize int) *JSRuntimePool {
 	pool := &JSRuntimePool{
 		pool:       make(chan *goja.Runtime, maxSize),
 		maxSize:    maxSize,
-		scripts:    make(map[string]string),
+		scripts:    "",
 		httpClient: httpClient,
 	}
 
@@ -161,31 +162,76 @@ func (p *JSRuntimePool) loadScripts(vm *goja.Runtime) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	// 加载预处理脚本
-	if script, exists := p.scripts["pre"]; exists {
-		if _, err := vm.RunString(script); err != nil {
-			common.SysError("Failed to load pre_process.js: " + err.Error())
+	// 如果已经缓存了合并的脚本，直接使用
+	if p.scripts != "" {
+		if _, err := vm.RunString(p.scripts); err != nil {
+			common.SysError("Failed to load cached scripts: " + err.Error())
 		}
-	} else if preScript, err := os.ReadFile(jsConfig.PreScriptPath); err == nil {
-		p.scripts["pre"] = string(preScript)
-		if _, err = vm.RunString(string(preScript)); err != nil {
-			common.SysError("Failed to load pre_process.js: " + err.Error())
-		} else {
-			common.SysLog("Loaded pre_process.js")
-		}
+		return
 	}
 
-	// 加载后处理脚本
-	if script, exists := p.scripts["post"]; exists {
-		if _, err := vm.RunString(script); err != nil {
-			common.SysError("Failed to load post_process.js: " + err.Error())
+	// 首次加载时，读取 scripts/ 文件夹中的所有脚本
+	p.mu.RUnlock()
+	p.mu.Lock()
+	defer func() {
+		p.mu.Unlock()
+		p.mu.RLock()
+	}()
+
+	if p.scripts != "" {
+		if _, err := vm.RunString(p.scripts); err != nil {
+			common.SysError("Failed to load cached scripts: " + err.Error())
 		}
-	} else if postScript, err := os.ReadFile(jsConfig.PostScriptPath); err == nil {
-		p.scripts["post"] = string(postScript)
-		if _, err = vm.RunString(string(postScript)); err != nil {
-			common.SysError("Failed to load post_process.js: " + err.Error())
+		return
+	}
+
+	// 读取所有脚本文件
+	var combinedScript strings.Builder
+	scriptDir := jsConfig.ScriptDir
+
+	// 检查目录是否存在
+	if _, err := os.Stat(scriptDir); os.IsNotExist(err) {
+		common.SysLog("Scripts directory does not exist: " + scriptDir)
+		return
+	}
+
+	// 读取目录中的所有 .js 文件
+	files, err := filepath.Glob(filepath.Join(scriptDir, "*.js"))
+	if err != nil {
+		common.SysError("Failed to read scripts directory: " + err.Error())
+		return
+	}
+
+	if len(files) == 0 {
+		common.SysLog("No JavaScript files found in: " + scriptDir)
+		return
+	}
+
+	// 按文件名排序以确保加载顺序一致
+	for _, file := range files {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			common.SysError("Failed to read script file " + file + ": " + err.Error())
+			continue
+		}
+
+		// 添加文件注释和内容
+		combinedScript.WriteString("// File: " + filepath.Base(file) + "\n")
+		combinedScript.WriteString(string(content))
+		combinedScript.WriteString("\n\n")
+
+		common.SysLog("Loaded script: " + filepath.Base(file))
+	}
+
+	// 缓存合并后的脚本
+	p.scripts = combinedScript.String()
+
+	// 执行脚本
+	if p.scripts != "" {
+		if _, err := vm.RunString(p.scripts); err != nil {
+			common.SysError("Failed to load combined scripts: " + err.Error())
 		} else {
-			common.SysLog("Loaded post_process.js")
+			common.SysLog("Successfully loaded and combined all JavaScript files from: " + scriptDir)
 		}
 	}
 }
@@ -195,7 +241,7 @@ func (p *JSRuntimePool) ReloadScripts() {
 	defer p.mu.Unlock()
 
 	// 清空缓存的脚本
-	p.scripts = make(map[string]string)
+	p.scripts = ""
 
 	// 清空VM池，强制重新创建
 	for {
@@ -227,7 +273,7 @@ func validateGinContext(c *gin.Context) error {
 	return nil
 }
 
-func (p *JSRuntimePool) executeWithTimeout(vm *goja.Runtime, fn func() (goja.Value, error)) (goja.Value, error) {
+func (p *JSRuntimePool) executeWithTimeout(_ *goja.Runtime, fn func() (goja.Value, error)) (goja.Value, error) {
 	type result struct {
 		value goja.Value
 		err   error
@@ -451,16 +497,13 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 		start := time.Now()
 
 		// 预处理
-		common.SysLog("JS Runtime PreProcessing Request: " + c.Request.Method + " " + c.Request.URL.String())
 		if err := pool.PreProcessRequest(c); err != nil {
 			common.SysError("JS Runtime PreProcess Error: " + err.Error())
 			return
 		}
-		common.SysLog("JS Runtime PreProcessing Completed")
 
 		// 后处理
 		if pool.hasPostProcessFunction() {
-			common.SysLog("JS Runtime PostProcessing Response")
 			writer := newResponseWriter(c.Writer)
 			c.Writer = writer
 
@@ -495,11 +538,9 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 			} else {
 				// 没有响应体时，恢复原始writer
 				c.Writer = writer.ResponseWriter
-				common.SysLog("JS Runtime PostProcessing Completed with no body")
 			}
 		} else {
 			c.Next()
-			common.SysLog("JS Runtime PostProcessing Skipped: No postProcessResponse function defined")
 		}
 
 		// 记录处理时间

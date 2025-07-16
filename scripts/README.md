@@ -1,73 +1,79 @@
-# JavaScript Runtime 中间件
+# JavaScript Runtime Scripts
+
+本目录包含 JavaScript Runtime 中间件使用的脚本文件。
+
+## 脚本加载
+
+- 系统会自动读取 `scripts/` 目录下的所有 `.js` 文件
+- 脚本按文件名字母顺序加载
+- 建议使用数字前缀来控制加载顺序（如：`01_utils.js`, `02_pre_process.js`）
+- 所有脚本会被合并到一个 JavaScript 运行时环境中
 
 ## 配置
 
-将 JavaScript 脚本放置在项目根目录的 `scripts/` 文件夹中：
+通过环境变量配置：
 
-- `scripts/pre_process.js` - 请求预处理脚本
-- `scripts/post_process.js` - 响应后处理脚本
+- `JS_RUNTIME_ENABLED=true` - 启用 JavaScript Runtime
+- `JS_SCRIPT_DIR=scripts/` - 脚本目录路径
+- `JS_MAX_VM_COUNT=8` - 最大虚拟机数量
+- `JS_SCRIPT_TIMEOUT=5s` - 脚本执行超时时间
+- `JS_FETCH_TIMEOUT=10s` - HTTP 请求超时时间
 
-## API 参考
+更多的详细配置可以在 `.env.example` 文件中找到，并在实际使用时重命名为 `.env`。
 
-### 预处理函数
+## 必需的函数
 
-```javascript
-function preProcessRequest(req) {
-    // req 包含以下属性:
-    // - method: 请求方法 (GET, POST, etc.)
-    // - url: 请求URL
-    // - headers: 请求头 (object)
-    // - body: 请求体 (object/string/ArrayBuffer)
-    // - remoteIP: 客户端IP
-    // - extra: 额外数据 (object)
-    
-    // 返回值:
-    // - undefined: 继续正常处理
-    // - object: 修改请求或阻止请求
-    //   - block: true/false - 是否阻止请求
-    //   - statusCode: 状态码
-    //   - message: 错误消息
-    //   - headers: 修改的请求头 (object)
-    //   - body: 修改的请求体
-}
-```
+脚本中必须定义以下两个函数：
 
-### 后处理函数
+### 1. preProcessRequest(req)
 
-```javascript
-function postProcessResponse(req, response) {
-    // ctx: 请求上下文 (同预处理)
-    // response 包含以下属性:
-    // - statusCode: 响应状态码
-    // - headers: 响应头 (object)
-    // - body: 响应体
-    
-    // 返回值:
-    // - undefined: 保持原始响应
-    // - object: 修改响应
-    //   - statusCode: 新的状态码
-    //   - headers: 修改的响应头
-    //   - body: 修改的响应体
-}
-```
+在请求被转发到后端 API 之前调用。
 
-### 数据库对象
+**参数：**
 
-```javascript
-// 查询数据库
-var results = db.Query("SELECT * FROM users WHERE id = ?", 123);
+- `req`: 请求对象，包含 `method`, `url`, `headers`, `body` 等属性
 
-// 执行 SQL
-var result = db.Exec("UPDATE users SET last_login = NOW() WHERE id = ?", 123);
-// result 包含: { rowsAffected: number, error: any }
-```
+**返回值：**
+返回一个对象，可包含以下属性：
 
-### 全局对象
+- `block`: boolean - 是否阻止请求继续执行
+- `statusCode`: number - 阻止请求时返回的状态码
+- `message`: string - 阻止请求时返回的错误消息
+- `headers`: object - 要修改或添加的请求头
+- `body`: any - 修改后的请求体
 
-- `console.log()` - 输出日志
-- `console.error()` - 输出错误日志
-- `JSON.parse()` - 解析 JSON
-- `JSON.stringify()` - 序列化为 JSON
+### 2. postProcessResponse(req, res)
+
+在响应返回给客户端之前调用。
+
+**参数：**
+
+- `req`: 原始请求对象
+- `res`: 响应对象，包含 `statusCode`, `headers`, `body` 等属性
+
+**返回值：**
+返回一个对象，可包含以下属性：
+
+- `statusCode`: number - 修改后的状态码
+- `headers`: object - 要修改或添加的响应头
+- `body`: string - 修改后的响应体
+
+## 可用的全局对象和函数
+
+- `console.log()`, `console.error()`, `console.warn()` - 日志输出
+- `JSON.parse()`, `JSON.stringify()` - JSON 处理
+- `fetch(url, options)` - HTTP 请求
+- `db` - 主数据库连接
+- `logdb` - 日志数据库连接
+- `setTimeout(fn, delay)` - 定时器
+
+## 示例脚本
+
+参考现有的示例脚本：
+
+- `01_utils.js` - 工具函数
+- `02_pre_process.js` - 请求预处理
+- `03_post_process.js` - 响应后处理
 
 ## 使用示例
 
