@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// / Runtime 配置
+// Runtime 配置
 type JSRuntimeConfig struct {
 	Enabled        bool          `json:"enabled"`
 	MaxVMCount     int           `json:"max_vm_count"`

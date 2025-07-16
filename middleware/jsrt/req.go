@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// / 上下文
-type JSContext struct {
+// 请求
+type JSReq struct {
 	Method    string            `json:"method"`
 	URL       string            `json:"url"`
 	Headers   map[string]string `json:"headers"`
@@ -36,7 +36,7 @@ type responseWriter struct {
 	mu         sync.RWMutex
 }
 
-func createJSContext(c *gin.Context) *JSContext {
+func createJSReq(c *gin.Context) *JSReq {
 	var bodyBytes []byte
 	if c.Request != nil && c.Request.Body != nil {
 		bodyBytes, _ = io.ReadAll(c.Request.Body)
@@ -74,7 +74,7 @@ func createJSContext(c *gin.Context) *JSContext {
 
 	parsedBody := parseBodyByType(bodyBytes, contentType)
 
-	return &JSContext{
+	return &JSReq{
 		Method:    method,
 		URL:       url,
 		Headers:   headers,

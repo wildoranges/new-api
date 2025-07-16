@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// / 池化
+// 池化
 type JSRuntimePool struct {
 	pool       chan *goja.Runtime
 	maxSize    int
@@ -267,18 +267,18 @@ func (p *JSRuntimePool) PreProcessRequest(c *gin.Context) error {
 		return nil
 	}
 
-	jsCtx := createJSContext(c)
-	if jsCtx == nil {
+	jsReq := createJSReq(c)
+	if jsReq == nil {
 		return fmt.Errorf("failed to create JS context")
 	}
 
 	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
-		vm.Set("ctx", jsCtx)
+		vm.Set("req", jsReq)
 		fn, ok := goja.AssertFunction(preProcessFunc)
 		if !ok {
 			return nil, fmt.Errorf("preProcessRequest is not a function")
 		}
-		return fn(goja.Undefined(), vm.ToValue(jsCtx))
+		return fn(goja.Undefined(), vm.ToValue(jsReq))
 	})
 
 	if err != nil {
@@ -366,8 +366,8 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 		return statusCode, body, nil
 	}
 
-	jsCtx := createJSContext(c)
-	if jsCtx == nil {
+	jsReq := createJSReq(c)
+	if jsReq == nil {
 		return statusCode, body, fmt.Errorf("failed to create JS context")
 	}
 
@@ -387,12 +387,12 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 	}
 
 	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
-		vm.Set("ctx", jsCtx)
+		vm.Set("req", jsReq)
 		fn, ok := goja.AssertFunction(postProcessFunc)
 		if !ok {
 			return nil, fmt.Errorf("postProcessResponse is not a function")
 		}
-		return fn(goja.Undefined(), vm.ToValue(jsCtx), vm.ToValue(jsResponse))
+		return fn(goja.Undefined(), vm.ToValue(jsReq), vm.ToValue(jsResponse))
 	})
 
 	if err != nil {

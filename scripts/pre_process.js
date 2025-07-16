@@ -1,23 +1,23 @@
 // 请求预处理
 // 在请求被处理之前执行的函数
 //
-// @param {Object} ctx - 请求上下文对象
+// @param {Object} req - 请求对象
 // @returns {Object|undefined} - 返回修改后的请求对象或 undefined
 // 
-// 参考: [JS Rt](./middleware/jsrt/ctx.go) 里的 `JSContext`
-function preProcessRequest(ctx) {
+// 参考: [JS Rt](./middleware/jsrt/req.go) 里的 `JSReq`
+function preProcessRequest(req) {
     // 例子：基于数据库的速率限制
-    // if (ctx.url.includes("/v1/chat/completions")) {
+    // if (req.url.includes("/v1/chat/completions")) {
     //     try {
     //         // Check recent requests from this IP
     //         var recentRequests = db.Query(
     //             "SELECT COUNT(*) as count FROM logs WHERE created_at > ? AND ip = ?",
     //             Math.floor(Date.now() / 1000) - 60, // last minute
-    //             ctx.remoteIP
+    //             req.remoteIP
     //         );
 
     //         if (recentRequests && recentRequests.length > 0 && recentRequests[0].count > 10) {
-    //             console.log("速率限制 IP:", ctx.RemoteIP);
+    //             console.log("速率限制 IP:", req.RemoteIP);
     //             return {
     //                 block: true,
     //                 statusCode: 429,
@@ -30,9 +30,9 @@ function preProcessRequest(ctx) {
     // }
 
     // 例子：修改请求
-    // if (ctx.URL.includes("/v1/chat/completions")) {
+    // if (req.URL.includes("/v1/chat/completions")) {
     //     try {
-    //         var bodyObj = ctx.Body;
+    //         var bodyObj = req.Body;
 
     //         let firstMsg = { // 需要新建一个对象，不能修改原有对象
     //             role: "user",
@@ -45,7 +45,7 @@ function preProcessRequest(ctx) {
     //         return {
     //             body: bodyObj,
     //             headers: {
-    //                 ...ctx.Headers,
+    //                 ...req.Headers,
     //                 "X-Modified-Body": "true"
     //             }
     //         };
@@ -53,14 +53,14 @@ function preProcessRequest(ctx) {
     //         console.error("Failed to modify request body:", {
     //             message: e.message,
     //             stack: e.stack,
-    //             bodyType: typeof ctx.Body,
-    //             url: ctx.URL
+    //             bodyType: typeof req.Body,
+    //             url: req.URL
     //         });
     //     }
     // }
 
     // // 例子：读取最近一条日志，新增 jsrt 日志，并输出日志总数
-    // if (ctx.URL) {
+    // if (req.URL) {
     //     try {
     //         // 1. 读取最近一条日志
     //         var recentLogs = logdb.Query(
@@ -75,12 +75,12 @@ function preProcessRequest(ctx) {
 
     //         // 2. 新增一条 jsrt 日志
     //         var currentTimestamp = Math.floor(Date.now() / 1000);
-    //         var jsrtLogContent = "JSRT 预处理中间件执行 - " + ctx.URL + " - " + new Date().toISOString();
+    //         var jsrtLogContent = "JSRT 预处理中间件执行 - " + req.URL + " - " + new Date().toISOString();
 
     //         var insertResult = logdb.Exec(
     //             "INSERT INTO logs (user_id, username, created_at, type, content) VALUES (?, ?, ?, ?, ?)",
-    //             ctx.UserID || 0,
-    //             ctx.Username || "jsrt-system",
+    //             req.UserID || 0,
+    //             req.Username || "jsrt-system",
     //             currentTimestamp,
     //             4, // LogTypeSystem
     //             jsrtLogContent
@@ -106,13 +106,13 @@ function preProcessRequest(ctx) {
     //         console.error("JSRT 日志管理示例执行失败:", {
     //             message: e.message,
     //             stack: e.stack,
-    //             url: ctx.URL
+    //             url: req.URL
     //         });
     //     }
     // }
 
     // // 例子：使用 fetch 调用外部 API
-    // if (ctx.URL.includes("/api/uptime/status")) {
+    // if (req.URL.includes("/api/uptime/status")) {
     //     try {
     //         // 使用 httpbin.org/ip 测试 fetch 功能
     //         var response = fetch("https://httpbin.org/ip", {
@@ -137,8 +137,8 @@ function preProcessRequest(ctx) {
                     
     //                 var insertResult = logdb.Exec(
     //                     "INSERT INTO logs (user_id, username, created_at, type, content) VALUES (?, ?, ?, ?, ?)",
-    //                     ctx.UserID || 0,
-    //                     ctx.Username || "jsrt-fetch",
+    //                     req.UserID || 0,
+    //                     req.Username || "jsrt-fetch",
     //                     currentTimestamp,
     //                     4, // LogTypeSystem
     //                     logContent
@@ -157,7 +157,7 @@ function preProcessRequest(ctx) {
     //         console.error("Fetch 失败:", {
     //             message: e.message,
     //             stack: e.stack,
-    //             url: ctx.URL
+    //             url: req.URL
     //         });
     //     }
     // }
