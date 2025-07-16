@@ -42,14 +42,14 @@
 - `headers`: object - 要修改或添加的请求头
 - `body`: any - 修改后的请求体
 
-### 2. postProcessResponse(req, res)
+### 2. postProcessResponse(req, resp)
 
 在响应返回给客户端之前调用。
 
 **参数：**
 
 - `req`: 原始请求对象
-- `res`: 响应对象，包含 `statusCode`, `headers`, `body` 等属性
+- `resp`: 响应对象，包含 `statusCode`, `headers`, `body` 等属性
 
 **返回值：**
 返回一个对象，可包含以下属性：
@@ -182,7 +182,7 @@ if (req.url.includes("/api/uptime/status")) {
             method: "GET",
             timeout: 5, // 5秒超时
             headers: {
-                "User-Agent": "OneAPI-JSRT/1.0"
+                "User-Agent": "JSRT/1.0"
             }
         });
         if (response.Error.length === 0) {

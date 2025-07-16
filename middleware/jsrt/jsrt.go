@@ -319,7 +319,6 @@ func (p *JSRuntimePool) PreProcessRequest(c *gin.Context) error {
 	}
 
 	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
-		vm.Set("req", jsReq)
 		fn, ok := goja.AssertFunction(preProcessFunc)
 		if !ok {
 			return nil, fmt.Errorf("preProcessRequest is not a function")
@@ -417,7 +416,7 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 		return statusCode, body, fmt.Errorf("failed to create JS context: %v", err)
 	}
 
-	jsResponse := &JSResponse{
+	jsResp := &JSResponse{
 		StatusCode: statusCode,
 		Headers:    make(map[string]string),
 		Body:       string(body),
@@ -427,13 +426,16 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 	if c.Writer != nil {
 		for key, values := range c.Writer.Header() {
 			if len(values) > 0 {
-				jsResponse.Headers[key] = values[0]
+				jsResp.Headers[key] = values[0]
 			}
 		}
 	}
+	jsResponse, err := common.StructToMap(jsResp)
+	if err != nil {
+		return statusCode, body, fmt.Errorf("failed to create JS response context: %v", err)
+	}
 
 	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
-		vm.Set("req", jsReq)
 		fn, ok := goja.AssertFunction(postProcessFunc)
 		if !ok {
 			return nil, fmt.Errorf("postProcessResponse is not a function")
@@ -537,21 +539,10 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 						c.Writer.Header().Del("Content-Length")
 						c.Writer.Write(body)
 					}
-
-					common.SysLog(fmt.Sprintf("JS Runtime PostProcessing Completed with status %d", statusCode))
 				} else {
 					// 出错时回复原响应
 					c.Writer = writer.ResponseWriter
 					c.Status(writer.statusCode)
-
-					originalBody := writer.body.Bytes()
-					if len(originalBody) >= 0 {
-						c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(originalBody)))
-						c.Writer.Write(originalBody)
-					} else {
-						c.Writer.Header().Del("Content-Length")
-						c.Writer.Write(originalBody)
-					}
 
 					common.SysError(fmt.Sprintf("JS Runtime PostProcess Error: %v", err))
 				}

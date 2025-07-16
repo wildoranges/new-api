@@ -1,5 +1,5 @@
 // Pre-processing function for incoming requests
 
-function preProcessRequest() {
-    logWithReq('Pre-processing request');
+function preProcessRequest(req) {
+    logWithReq(req, 'Pre-processing request');
 }

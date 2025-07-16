@@ -1,6 +1,6 @@
 // Utility functions for JavaScript runtime
 
-function logWithReq(message) {
+function logWithReq(req, message) {
     let reqPath = req.url || 'unknown path';
     console.log(`[${req.method} ${reqPath}] ${message}`);
 }
