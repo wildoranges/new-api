@@ -502,6 +502,11 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 			return
 		}
 
+		duration := time.Since(start)
+		if duration > time.Millisecond*100 {
+			common.SysLog(fmt.Sprintf("JS Runtime PreProcess took %v", duration))
+		}
+
 		// 后处理
 		if pool.hasPostProcessFunction() {
 			writer := newResponseWriter(c.Writer)
@@ -511,6 +516,8 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 
 			// 后处理响应
 			if writer.body.Len() > 0 {
+				start := time.Now()
+
 				statusCode, body, err := pool.PostProcessResponse(c, writer.statusCode, writer.body.Bytes())
 				if err == nil {
 					c.Writer = writer.ResponseWriter
@@ -548,18 +555,17 @@ func JSRuntimeMiddleware() *gin.HandlerFunc {
 
 					common.SysError(fmt.Sprintf("JS Runtime PostProcess Error: %v", err))
 				}
+
+				duration := time.Since(start)
+				if duration > time.Millisecond*100 {
+					common.SysLog(fmt.Sprintf("JS Runtime PostProcess took %v", duration))
+				}
 			} else {
 				// 没有响应体时，恢复原始writer
 				c.Writer = writer.ResponseWriter
 			}
 		} else {
 			c.Next()
-		}
-
-		// 记录处理时间
-		duration := time.Since(start)
-		if duration > time.Millisecond*100 {
-			common.SysLog(fmt.Sprintf("JS Runtime processing took %v", duration))
 		}
 	}
 	return &fn

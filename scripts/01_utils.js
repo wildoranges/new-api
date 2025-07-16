@@ -1,8 +1,8 @@
 // Utility functions for JavaScript runtime
 
-function logWithTimestamp(message) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${message}`);
+function logWithReq(message) {
+    let reqPath = req.url || 'unknown path';
+    console.log(`[${req.method} ${reqPath}] ${message}`);
 }
 
 function safeJsonParse(str, defaultValue = null) {
