@@ -6,17 +6,13 @@ import (
 	"gorm.io/gorm"
 )
 
-type JSDatabase struct {
-	db *gorm.DB
-}
-
-func (jsdb *JSDatabase) Query(sql string, args ...any) []map[string]any {
-	if jsdb.db == nil {
+func dbQuery(db *gorm.DB, sql string, args ...any) []map[string]any {
+	if db == nil {
 		common.SysError("JS DB is nil")
 		return nil
 	}
 
-	rows, err := jsdb.db.Raw(sql, args...).Rows()
+	rows, err := db.Raw(sql, args...).Rows()
 	if err != nil {
 		common.SysError("JS DB Query Error: " + err.Error())
 		return nil
@@ -57,15 +53,15 @@ func (jsdb *JSDatabase) Query(sql string, args ...any) []map[string]any {
 	return results
 }
 
-func (jsdb *JSDatabase) Exec(sql string, args ...any) map[string]any {
-	if jsdb.db == nil {
+func dbExec(db *gorm.DB, sql string, args ...any) map[string]any {
+	if db == nil {
 		return map[string]any{
 			"rowsAffected": int64(0),
 			"error":        "database is nil",
 		}
 	}
 
-	result := jsdb.db.Exec(sql, args...)
+	result := db.Exec(sql, args...)
 	return map[string]any{
 		"rowsAffected": result.RowsAffected,
 		"error":        result.Error,

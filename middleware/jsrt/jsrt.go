@@ -145,8 +145,8 @@ func (p *JSRuntimePool) setupGlobals(vm *goja.Runtime) {
 	})
 
 	// 数据库
-	vm.Set("db", &JSDatabase{db: model.DB})
-	vm.Set("logdb", &JSDatabase{db: model.LOG_DB})
+	setDB(vm, model.DB, "db")
+	setDB(vm, model.LOG_DB, "logdb")
 
 	// 定时器
 	vm.Set("setTimeout", func(fn func(), delay int) {
@@ -267,9 +267,9 @@ func (p *JSRuntimePool) PreProcessRequest(c *gin.Context) error {
 		return nil
 	}
 
-	jsReq := createJSReq(c)
-	if jsReq == nil {
-		return fmt.Errorf("failed to create JS context")
+	jsReq, err := common.StructToMap(createJSReq(c))
+	if err != nil {
+		return fmt.Errorf("failed to create JS context: %v", err)
 	}
 
 	result, err := p.executeWithTimeout(vm, func() (goja.Value, error) {
@@ -366,9 +366,9 @@ func (p *JSRuntimePool) PostProcessResponse(c *gin.Context, statusCode int, body
 		return statusCode, body, nil
 	}
 
-	jsReq := createJSReq(c)
-	if jsReq == nil {
-		return statusCode, body, fmt.Errorf("failed to create JS context")
+	jsReq, err := common.StructToMap(createJSReq(c))
+	if err != nil {
+		return statusCode, body, fmt.Errorf("failed to create JS context: %v", err)
 	}
 
 	jsResponse := &JSResponse{

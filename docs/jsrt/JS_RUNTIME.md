@@ -12,46 +12,42 @@
 ### 预处理函数
 
 ```javascript
-function preProcessRequest(ctx) {
-    // ctx 包含以下属性:
+function preProcessRequest(req) {
+    // req 包含以下属性:
     // - method: 请求方法 (GET, POST, etc.)
     // - url: 请求URL
     // - headers: 请求头 (object)
-    // - body: 请求体 (string)
-    // - query: 查询参数 (object)
-    // - params: 路径参数 (object)
-    // - userAgent: User-Agent
+    // - body: 请求体 (object/string/ArrayBuffer)
     // - remoteIP: 客户端IP
-    // - contentType: Content-Type
     // - extra: 额外数据 (object)
     
     // 返回值:
     // - undefined: 继续正常处理
     // - object: 修改请求或阻止请求
     //   - block: true/false - 是否阻止请求
-    //   - statusCode: 状态码 (当 block=true 时)
-    //   - message: 错误消息 (当 block=true 时)
+    //   - statusCode: 状态码
+    //   - message: 错误消息
     //   - headers: 修改的请求头 (object)
-    //   - body: 修改的请求体 (string)
+    //   - body: 修改的请求体
 }
 ```
 
 ### 后处理函数
 
 ```javascript
-function postProcessResponse(ctx, response) {
+function postProcessResponse(req, response) {
     // ctx: 请求上下文 (同预处理)
     // response 包含以下属性:
     // - statusCode: 响应状态码
     // - headers: 响应头 (object)
-    // - body: 响应体 (string)
+    // - body: 响应体
     
     // 返回值:
     // - undefined: 保持原始响应
     // - object: 修改响应
     //   - statusCode: 新的状态码
-    //   - headers: 修改的响应头 (object)
-    //   - body: 修改的响应体 (string)
+    //   - headers: 修改的响应头
+    //   - body: 修改的响应体
 }
 ```
 
@@ -167,7 +163,7 @@ function postProcessResponse(ctx, response) {
 ### 重新加载脚本
 
 ```bash
-curl -X POST http://host:port/api/scripts/reload \
+curl -X POST http://host:port/api/jsrt/reload \
         -H 'Content-Type: application/json' \
         -H 'Authorization Bearer <admin_token>'
 ```

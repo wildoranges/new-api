@@ -3,9 +3,31 @@ package jsrt
 import (
 	"encoding/json"
 	"net/url"
+	"one-api/common"
 	"strings"
+
+	"github.com/dop251/goja"
+	"gorm.io/gorm"
 )
 
+func setDB(vm *goja.Runtime, db *gorm.DB, name string) {
+	if db == nil {
+		common.SysError("JS DB is nil")
+		return
+	}
+
+	obj := vm.NewObject()
+	obj.Set("query", func(sql string, params ...any) []map[string]any {
+		return dbQuery(db, sql, params...)
+	})
+	obj.Set("exec", func(sql string, params ...any) map[string]any {
+		return dbExec(db, sql, params...)
+	})
+	if err := vm.Set(name, obj); err != nil {
+		common.SysError("Failed to set JS DB: " + err.Error())
+		return
+	}
+}
 
 func parseBodyByType(bodyBytes []byte, contentType string) any {
 	if len(bodyBytes) == 0 {
