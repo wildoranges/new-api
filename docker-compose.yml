@@ -7,10 +7,12 @@ services:
     restart: always
     command: --log-dir /app/logs
     ports:
-      - "3000:3000"
+      - "30000:3000"
     volumes:
       - ./data:/data
       - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - SQL_DSN=root:123456@tcp(mysql:3306)/new-api  # Point to the mysql service
       - REDIS_CONN_STRING=redis://redis
@@ -26,7 +28,7 @@ services:
       - redis
       - mysql
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' | awk -F: '{print $$2}'"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:30000/api/status | grep -o '\"success\":\\s*true' | awk -F: '{print $$2}'"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,15 +40,15 @@ services:
 
   mysql:
     image: mysql:8.2
-    container_name: mysql
+    container_name: new-api-mysql
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: 123456  # Ensure this matches the password in SQL_DSN
       MYSQL_DATABASE: new-api
     volumes:
       - mysql_data:/var/lib/mysql
-    # ports:
-    #   - "3306:3306"  # If you want to access MySQL from outside Docker, uncomment
+    ports:
+      - "13306:3306"  # If you want to access MySQL from outside Docker, uncomment
 
 volumes:
   mysql_data:
